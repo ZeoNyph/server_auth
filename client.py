@@ -30,3 +30,10 @@ if __name__ == "__main__":
     # to process as a dictionary
     r = requests.get("http://127.0.0.1:2250/json")
     print(r.json())
+
+    ### START CLIENT
+    username = input("What username would you like to use?")
+    choice = input("Would you like to use an MFA token if you have one? [y/n]")
+    password = input("What is the password assigned to this user?")
+    r = requests.post("http://127.0.0.1:2250/admin_console", data={"username": username, "password": password})
+    print(r.text)
