@@ -33,6 +33,9 @@ class User(object):
     def get_secLevel(self) -> int:
         return self.secLevel
     
+    def set_secLevel(self, newLevel: SecurityLevel):
+        self.secLevel = newLevel
+    
     def get_pw_hash(self) -> str:
         return self.password
     
