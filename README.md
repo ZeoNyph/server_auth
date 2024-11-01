@@ -10,18 +10,21 @@ Flask, Requests, python-dotenv
 
 ## Instructions
 
-- Install the requirements using:
+Install the requirements using:
 ```sh
 python -m pip install -r requirements.txt
 ```
-- Run the server using:
+Run the server using:
 ```sh
 python server.py
 ```
-- Run the client program using:
+Run the client program using:
 ```sh
 python client.py
 ```
+Follow the instructions given on the client terminal, inputting information where necessary.
+
 ## Additional Notes
 - The Mailgun API key and SMTP password are stored as environment variables in mailgun.env; if needed, feel free to put them directly into the code.
 - This assessment also does not check for incorrect inputs ('sunny day' scenario), so please make sure the inputs are correct.
+- Do not worry if it looks like nothing is being typed into the password, token, and code fields; inputs are hidden for security purposes (like entering password for sudo commands in Linux terminals)

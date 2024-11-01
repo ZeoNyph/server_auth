@@ -1,116 +1,48 @@
 """
-This is our HTTP server, to run, just install Flask using the pip tool and run this file with `python server.py`.
-In this, we provide some example functions showing what Flask can do, then the functions you should add authentication
-and access control to.
+File: server.py
+Author: Mithun Sivanesan, C3403606
+Desc: This file contains the server implementation for A3.
 """
 
+#imports
 import os, smtplib, ssl, hashlib, string, random, time
 from user import User
 from dotenv import load_dotenv
 from flask import Flask, request, redirect, url_for
+
+#global vars
 app = Flask(__name__)
 users = []
+load_dotenv("mailgun.env") #loads Mailgun API Key and SMTP password; placed into .env file for security with GitHub/Git
 
-load_dotenv("mailgun.env")
-
-
-#### Example functions
-# The following are examples of what you can do with Flask, you will probably want remove them on submission
-
-@app.route("/")
-def hello_world():
-    """
-    This function runs when the url http://<host>:<port>/ is requested,
-    sub-urls can be specified but putting different arguments into @app.route(args).
-    The return value is sent over the network to the client.
-    """
-    return "Hello, World!"
-
-
-@app.route("/hello", methods=["POST"])
-def post_hello():
-    """
-    This shows an example of a post request, one of the types of http message.
-    This allows a client to send information inside the payload part of the http
-    packet, and the server can read that information in the form of the dictionary
-    `request.form`.
-    You can also do similar with GET requests, although the dictionary
-    will then be `request.args`. Additionally, the data will be directly in the url,
-    so you likely want to avoid GET if sending sensitive information such as passwords
-    as we are in this assignment.
-    """
-    if request.form.get("name"):
-        return f"Hello {request.form['name']}"
-    return "Hello stranger"
-
-
-@app.route("/redirect")
-def move_to_hello_name():
-    """
-    With this, we show how to redirect a client to a different url that we provide.
-    """
-    return redirect(url_for("hello", name="Bob"))
-
-
-@app.route("/hello/<name>")
-def hello(name):
-    """
-    For this, we show how to use information in the url as an argument to the function.
-    The contents of the angle brackets in the route are the name of variable gains the value
-    of what the client enters in it place. E.g. if the client requests `http://127.0.0.1:2250/hello/charlie`
-    then name = "charlie".
-    """
-    return f"Hello {name}"
-
-
-@app.route("/visitors", methods=["GET"])
-def visitor_list():
-    """
-    Since this is an http server, it is stateless, allowing it handle many clients simultaneously, but also
-    meaning we can not directly track users as they progress through the app.
-    So, instead to keep information in any long term basis, we need to save to external service, such as a file.
-    Note that using a file is in reality bad practice, but it is convenient for this assignment.
-    """
-    # First we append the new visitor to the list
-    with open("data/visitors.txt", 'a') as f:
-        f.write(request.args['name'] if request.args.get("name") else "stranger")
-        f.write("\n")
-    # Then we send back the list
-    with open("data/visitors.txt", 'r') as f:
-        return f.read()
-
-
-@app.route("/json")
-def json_data():
-    """
-    With this, we demonstrate how more complex data can be returned as a dictionary, specifically,
-    it gets translated into a json file and sent back to the client. You can also send back lists this way.
-    """
-    return {"data": "hello", "numbers": [1, 2, 3]}
-
-#### End example functions
-
-
+"""
+Adds user to portal. Requires admin access.
+"""
 @app.route("/admin_console/add_user", methods=["POST"])
 def admin_add_user():
+    # login 
     status = user_login(request.form.get('username'), request.form.get('password'), request.form.get('code'), request.form.get('token'))
-    if status != 0 and status != 5:
+    if status != 0 and status != 5: #if failure
         return send_error_msg(status)
     user = get_user(request.form.get('username'))
-    if user.get_secLevel() < 4:
+    if user.get_secLevel() < 4: #if not having access
         return send_error_msg(status) + "\nAccess denied"
-    if not request.form.getlist('newUser'):
+    if not request.form.getlist('newUser'): #if missing param
         return send_error_msg(status) + '\nMissing new user information'
     info = request.form.getlist('newUser')
-    if get_user(info[0]):
+    if get_user(info[0]): #if 'new' user exists
         return send_error_msg(status) + '\nUser already exists'
     file = open("data/users.txt", 'a')
     new_user = User(info[0], info[1], int(info[2]))
     send_acc_mail(info[1], new_user.create_pw(), info[0])
     users.append(new_user)
-    file.write(f"\n{info[0]}, {info[1]}, {new_user.get_secLevel()}, {new_user.get_pw_hash()}\n")
+    file.write(f"{info[0]}, {info[1]}, {new_user.get_secLevel()}, {new_user.get_pw_hash()}\n")
+    file.close()
     return send_error_msg(status) + "\nUser added."   
         
+"""
+Remove user from portal, requires admin access
+"""
 @app.route("/admin_console/remove_user", methods=["POST"])
 def admin_remove_user():
     status = user_login(request.form.get('username'), request.form.get('password'), request.form.get('code'), request.form.get('token'))
@@ -123,15 +55,20 @@ def admin_remove_user():
         return send_error_msg(status) + "\nMissing user to remove"
     if not get_user(request.form.get('userToRemove')):
         return send_error_msg(status) + '\nUser does not exist, cannot remove'
-    with open("users.txt","r+") as f:
+    with open("data/users.txt","r+") as f:
         new_f = f.readlines()
         f.seek(0)
         for line in new_f:
             if request.form['userToRemove']not in line:
                 f.write(line)
+            else:
+                users.remove(get_user(request.form.get('userToRemove')))
         f.truncate()
     return send_error_msg(status) + '\nUser removed.'
 
+"""
+Modifies the security level of the user, requires admin access
+"""
 @app.route("/admin_console/modify_user", methods=["POST"])
 def admin_modify_user():
     status = user_login(request.form.get('username'), request.form.get('password'), request.form.get('code'), request.form.get('token'))
@@ -144,19 +81,21 @@ def admin_modify_user():
         return send_error_msg(status) + "\nMissing user to remove"
     if not request.form.get('newSecLevel'):
         return send_error_msg(status) + "\nMissing security level"
-    with open("users.txt","r+") as f:
+    with open("data/users.txt","r+") as f:
         new_f = f.readlines()
         f.seek(0)
         for line in new_f:
             if request.form.get('userToModify') in line:
                 info = line.split(", ")
                 info[2] = request.form.get('newSecLevel')
-                line = str.join(info)
+                line = ', '.join(info)
+                get_user(request.form.get('userToModify')).set_secLevel(int(info[2]))
             f.write(line)
         f.truncate()
     get_user(request.form.get('userToModify')).set_secLevel(int(request.form.get('newSecLevel')))
     return send_error_msg(status) + "\nUser modified."  
 
+# Services
 
 @app.route("/audit_expenses", methods=["POST"])
 def audit_expenses():
@@ -182,7 +121,7 @@ def add_expense():
         return send_error_msg(status) + "\nAccess denied"
     if request.form:
         with open("data/expenses.txt", 'a') as f:
-            f.write(request.form)
+            f.write(request.form.get('expense'))
         return "Expense added"
     return "No expense was given"
 
@@ -211,7 +150,7 @@ def submit_timesheet():
         return send_error_msg(status) + "\nAccess denied"
     if request.form:
         with open("data/timesheets.txt", 'a') as f:
-            f.write(request.form)
+            f.write(request.form.get('timesheet'))
         return "Timesheet added"
     return "No timesheet was given"
 
@@ -238,9 +177,9 @@ def add_meeting_minutes():
     user = get_user(request.form.get('username'))
     if user.get_secLevel() < 2:
         return send_error_msg(status) + "\nAccess denied"
-    if os.path.exists("data/meeting_minutes.txt"):
-        with open("data/meeting_minutes.txt", 'r') as f:
-            f.write(request.form)
+    if request.form:
+        with open("data/meeting_minutes.txt", 'a') as f:
+            f.write(request.form.get('minutes'))
         return "Meeting minutes added"
     return "No meeting minutes given"
 
@@ -267,12 +206,17 @@ def roster_shift():
     user = get_user(request.form.get('username'))
     if user.get_secLevel() < 1:
         return send_error_msg(status) + "\nAccess denied"
-    if os.path.exists("data/roster.txt"):
-        with open("data/roster.txt", 'r') as f:
-            f.write(request.form)
+    if request.form:
+        with open("data/roster.txt", 'a') as f:
+            f.write(request.form.get('shift'))
         return "Shift rostered"
     return "No shift given"
 
+# Server functions
+
+"""
+Initializes server's user repository.
+"""
 def user_init():
     if os.path.exists("data/users.txt"):
         file = open('data/users.txt', 'r')
@@ -280,14 +224,15 @@ def user_init():
             user_info = user.removesuffix("\n").split(", ")
             users.append(User(user_info[0], user_info[1], int(user_info[2]), user_info[3]))
         file.close()
-    else:
-        root_user = User("root", "mithunsivanesan@gmail.com", 4)
+    else: # create new root user if no users.txt detected
+        root_user = User("root", "seng2250a@gmail.com", 4)
         print(f"Here is the root user password (This will not be displayed again, unless users.txt is deleted): {root_user.create_pw()}")
         users.append(root_user)
         file = open("data/users.txt", "a")
         file.write(f"{root_user.get_name()}, {root_user.get_email()}, {root_user.get_secLevel()}, {root_user.get_pw_hash()}\n")
         file.close()
 
+## Mailing methods
 def send_acc_mail(email_addr: str, user_pw: str, username: str):
     port = 465
     password = os.getenv('MAILGUN_PW')
@@ -331,9 +276,12 @@ Subject: Your MFA code for Mako
 
 Hi, {username}.
 Here is your MFA (Multi-Factor Authentication) code for Mako, use this for verification:
-Token: {code}"""
+Code: {code}"""
         serv.sendmail("admin@mako.com", email_addr, message)
 
+"""
+Creates a new token for given user.
+"""
 def create_new_token(user: User):
     token = ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(20))
     t_exp = time.time() + (15*60)
@@ -342,6 +290,9 @@ def create_new_token(user: User):
     send_token_mail(user.get_email(), token, user.get_name())
     file.close()
 
+"""
+Validates a token for given user
+"""
 def validate_token(username: str, token='') -> bool:
     isValid = False
     if os.path.exists("data/tokens.txt"):
@@ -352,8 +303,14 @@ def validate_token(username: str, token='') -> bool:
                 isValid = True
                 file.close()
                 break
+            elif float(info[2]) < time.time() and len(info) == 3:
+                info.append("EXPIRED")
+                user = ', '.join(info)
     return isValid
 
+"""
+Checks if user has a MFA code stored
+"""
 def validate_mfa(username: str) -> bool:
     isValid = False
     if os.path.exists("data/auth.txt"):
@@ -366,10 +323,16 @@ def validate_mfa(username: str) -> bool:
                 break
     return isValid
     
+"""
+Generates a code for MFA
+"""
 def mfa_codegen() -> int:
     randomgen = random.SystemRandom()
     return random.SystemRandom.randint(randomgen, 100000,999999)
 
+"""
+Main code for MFA; creates code and sends to user
+"""
 def mfa(user: User):
     file = open("data/auth.txt", 'a')
     code = mfa_codegen()
@@ -377,7 +340,9 @@ def mfa(user: User):
     file.close()
     send_MFA_mail(user.get_email(), code, user.get_name())
 
-
+"""
+Verifies MFA code
+"""
 def mfa_verify(username: str, code: int) -> bool:
     isValid = False
     if os.path.exists("data/auth.txt"):
@@ -390,7 +355,9 @@ def mfa_verify(username: str, code: int) -> bool:
                 break
     return isValid
 
-
+"""
+Gets user from list.
+"""
 def get_user(username: str) -> User:
     for user in users:
         if username == user.get_name():
@@ -399,6 +366,8 @@ def get_user(username: str) -> User:
 
 
 """
+Logs in user.
+
 Error codes:
 0: successful login
 1: user does not exist
@@ -412,7 +381,7 @@ def user_login(username: str, password: str, code='', token='') -> int:
     user = get_user(username)
     if user == None:
         return 1
-    if user.get_pw_hash() != hashlib.sha256(password.encode()).hexdigest():
+    if user.get_pw_hash() != password:
         return 2
     if not validate_mfa(username) and code == '' and username != "root":
         mfa(user)
@@ -426,6 +395,10 @@ def user_login(username: str, password: str, code='', token='') -> int:
         return 6
     return 0
 
+
+"""
+Returns an error message based on login status. 
+"""
 def send_error_msg(status: int) -> str:
     match status:
         case 0:

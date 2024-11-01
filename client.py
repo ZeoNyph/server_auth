@@ -1,49 +1,98 @@
-import requests, getpass
+"""
+File: client.py
+Author: Mithun Sivanesan, C3403606
+Description: This file contains the client program for testing the server for A3.
+"""
+
+import requests, getpass, os, hashlib
 
 
 if __name__ == "__main__":
-    """ # The following shows example code requesting each of the example functions from the server
-    r = requests.get("http://127.0.0.1:2250/")
-    # server responses are given in the text variable shown with the following
-    print(r.text)
-
-    r = requests.post("http://127.0.0.1:2250/hello", data={"name": "Alice"})
-    print(r.text)
-
-    r = requests.post("http://127.0.0.1:2250/hello")
-    print(r.text)
-
-    r = requests.get("http://127.0.0.1:2250/redirect")
-    print(r.text)
-
-    r = requests.get("http://127.0.0.1:2250/visitors?name=Frank")
-    print(r.text)
-
-    # For some error checking, you can also check whether a request was successful by looking at the status_code
-    # variable
-    r = requests.get("http://127.0.0.1:2250/lost_page")
-    print(r.status_code)
-    if r.status_code == 404:
-        print("The page was not found")
-
-    # For more complicated responses, e.g. when the server returns a dictionary, you can use the json() method
-    # to process as a dictionary
-    r = requests.get("http://127.0.0.1:2250/json")
-    print(r.json()) """
-
     ### START CLIENT
-    username = input("What username would you like to use?")
-    choice = input("Would you like to use an MFA token if you have one? [y/n]")
-    token = ''
-    if choice[0].lower() == 'y':
-        token = input("What is the MFA token? (this should be in your email inbox):")
-    password = getpass.getpass("What is the password assigned to this user?")
-    code = getpass.getpass("If you have an MFA code for authentication, please add it here, or just hit Enter if not:")
+    username = 'root'
+    print("Using root; bypassing MFA inputs")
+    password = hashlib.sha256(getpass.getpass("What is the password assigned to root? (check what was printed on server terminal):").encode()).hexdigest()
+    code = ''
 
     ## test admin console
-    r = requests.post("http://127.0.0.1:2250/admin_console/add_user", data={'username': username, 'password': password, 'code': code, 'token': token, 'newUser': ['RobertL', 'mithunsivanesan@gmail.com', 3]})
+    print("Testing admin access control; adding user RobertL [Top Secret]")
+    r = requests.post("http://127.0.0.1:2250/admin_console/add_user", data={'username': username, 'password': password, 'code': code, 'token': '', 'newUser': ['RobertL', 'seng2250a@gmail.com', 3]})
     print(r.text)
-    if r.text == 'Access granted':
-        pass
-    else:
-        print("This user does not have access to the admin console, skipping admin tests")
+    if not r.text.startswith("Login successful."):
+        print("Please make sure you've typed in the correct password.")
+        exit()
+        
+    
+    ## test newly added RobertL, security level = Top Secret
+    print("Attempting to log in as RobertL.")
+    user_pw = hashlib.sha256(getpass.getpass("What is RobertL's generated password? (is in email): ").encode()).hexdigest()
+    r = requests.post("http://127.0.0.1:2250/audit_expenses", data={'username': 'RobertL', 'password': user_pw, 'code': '', 'token': ''})
+    print(r.text)
+    if 'Incorrect password.' in r.text:
+        r = requests.post("http://127.0.0.1:2250/admin_console/remove_user", data={'username': username, 'password': user_pw, 'code': '', 'token': '', 'userToRemove': 'RobertL'})
+        print("Exiting program.")
+        exit()
+    user_mfa_code = getpass.getpass("What is the MFA code for RobertL?: ")
+    print("Attempting to read expenses.")
+    r = requests.post("http://127.0.0.1:2250/audit_expenses", data={'username': 'RobertL', 'password': user_pw, 'code': user_mfa_code, 'token': ''})
+    print(r.text)
+    if 'Incorrect MFA code' in r.text:
+        r = requests.post("http://127.0.0.1:2250/admin_console/remove_user", data={'username': username, 'password': user_pw, 'code': '', 'token': '', 'userToRemove': 'RobertL'})
+        os.remove("data/auth.txt")
+        print("Exiting program.")
+        exit()
+    user_token = getpass.getpass("What is RobertL's token? (check email inbox) (NOTE: if you wish to test expiry, wait 15 minutes): ")
+    print("Attempting to write expenses as RobertL.")
+    r = requests.post("http://127.0.0.1:2250/add_expense", data={'username': 'RobertL', 'password': user_pw, 'code': '', 'token': user_token, 'expense': 'At least 50 marks on SENG2250, please'})
+    print(r.text)
+    if 'Incorrect token' in r.text:
+        r = requests.post("http://127.0.0.1:2250/admin_console/remove_user", data={'username': username, 'password': password, 'code': '', 'token': '', 'userToRemove': 'RobertL'})
+        os.remove("data/auth.txt")
+        os.remove("data/tokens.txt")
+        print("Exiting program.")
+        exit()
+    print("Attempting to view meeting minutes as RobertL [should not be given access]")
+    r = requests.post("http://127.0.0.1:2250/view_meeting_minutes", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token})
+    print(r.text)
+    print("Testing RobertL's admin permissions [should not be given access]")
+    r = requests.post("http://127.0.0.1:2250/admin_console/add_user", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token, 'newUser': ['WillH', 'seng2250a@gmail.com', 2]})
+    print(r.text)
+
+    ## Testing Secret level access
+    print("Changing RobertL's level to Secret")
+    r = requests.post("http://127.0.0.1:2250/admin_console/modify_user", data={'username': username, 'password': password, 'code': code, 'token': user_token, 'userToModify': 'RobertL', 'newSecLevel': '2'})
+    print(r.text)
+    print("Attempting to write expenses as RobertL [should be denied access]")
+    r = requests.post("http://127.0.0.1:2250/add_expense", data={'username': 'RobertL', 'password': user_pw, 'code': '', 'token': user_token, 'expense': 'THIS EXPENSE SHOULD NOT BE WRITTEN'})
+    print(r.text)
+    print("Attempting to view meeting minutes as RobertL [should have access as Secret]")
+    r = requests.post("http://127.0.0.1:2250/view_meeting_minutes", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token})
+    print(r.text)
+    print("Attempting to add meeting minutes as RobertL [should have access as Secret]")
+    r = requests.post("http://127.0.0.1:2250/add_meeting_minutes", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token, 'minutes': 'Implemented meeting minutes into Mako'})
+    print(r.text)
+
+    ## Testing Unclassified level access
+    print("Changing RobertL's level to Unclassified")
+    r = requests.post("http://127.0.0.1:2250/admin_console/modify_user", data={'username': username, 'password': password, 'code': code, 'token': user_token, 'userToModify': 'RobertL', 'newSecLevel': '1'})
+    print(r.text)
+    print("Attempting to add meeting minutes as RobertL [should not be given access]")
+    r = requests.post("http://127.0.0.1:2250/add_meeting_minutes", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token, 'minutes': 'SHOULD NOT BE WRITTEN'})
+    print(r.text)
+    print("Attempting to view expenses as RobertL [should have access as Unclassified]")
+    r = requests.post("http://127.0.0.1:2250/audit_expenses", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token})
+    print(r.text)
+    print("Attempting to add shift as RobertL [should have access as Unclassified]")
+    r = requests.post("http://127.0.0.1:2250/roster_shift", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token, 'shift': 'Robert L. - 15:00 to 21:00'})
+    print(r.text)
+    print("Attempting to view shifts as RobertL [should have access as Unclassified]")
+    r = requests.post("http://127.0.0.1:2250/view_roster", data={'username': 'RobertL', 'password': user_pw, 'code': code, 'token': user_token})
+    print(r.text)
+    print("Removing user RobertL")
+    r = requests.post("http://127.0.0.1:2250/admin_console/remove_user", data={'username': username, 'password': password, 'code': '', 'token': '', 'userToRemove': 'RobertL'})
+    print(r.text)
+
+    os.remove("data/auth.txt")
+    os.remove("data/tokens.txt")
+    print("Testing complete!")
+    exit()
