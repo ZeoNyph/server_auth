@@ -1,8 +1,8 @@
-# README: SENG2250 A3
+# README
 
 Written by: Mithun Sivanesan, C3403606
 
-This is the source code for Assessment 3 of SENG2250 (System and Network Security).
+This is the source code for Assessment 3 of SENG2250 (System and Network Security). It is an implementation of server authentication, as well as multi-factor authentication using Mailgun as a host for SMTP, and Flask for creating a demo server.
 
 ## Requirements
 
